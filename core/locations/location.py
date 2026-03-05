@@ -1,51 +1,39 @@
+from __future__ import annotations
+
+
 class Location:
-    """A physical location associated with tasks and resources."""
+    """A physical place associated with tasks and resources.
 
-    def __init__(self, name: str) -> None:
-        self.name = self._validate(name, "name")
-
-    @staticmethod
-    def _validate(value: str, label: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError(f"{label} must not be empty or whitespace")
-        return stripped
-
-    def __repr__(self) -> str:
-        return f"Location(name={self.name!r})"
-
-
-class TravelMatrix:
-    """Travel time (in minutes) between pairs of locations.
-
-    Defines how long it takes to travel from one location to another.
-    Used by the solver to enforce travel time buffers between consecutive
-    assignments at different locations.
+    Serves as a reference point for resource and task positioning within
+    a schedule. Contains no travel logic or scheduling logic — it is a
+    pure identity object used by other domain entities.
     """
 
-    def __init__(self) -> None:
-        self._times: dict[tuple[str, str], float] = {}
+    def __init__(self, location_id: str, name: str) -> None:
+        if not isinstance(location_id, str) or not location_id.strip():
+            raise ValueError("location_id must be a non-empty string.")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("name must be a non-empty string.")
+        self._location_id: str = location_id.strip()
+        self._name: str = name.strip()
 
-    @staticmethod
-    def _validate(value: str, label: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError(f"{label} must not be empty or whitespace")
-        return stripped
+    @property
+    def location_id(self) -> str:
+        """Unique identifier for this location."""
+        return self._location_id
 
-    def set_travel_time(self, from_location: str, to_location: str, minutes: float) -> None:
-        """Set the travel time in minutes between two locations."""
-        from_location = self._validate(from_location, "from_location")
-        to_location = self._validate(to_location, "to_location")
-        if minutes < 0:
-            raise ValueError(f"minutes must be non-negative, got {minutes}")
-        self._times[(from_location, to_location)] = float(minutes)
+    @property
+    def name(self) -> str:
+        """Human-readable name of the location."""
+        return self._name
 
-    def get_travel_time(self, from_location: str, to_location: str) -> float | None:
-        """Return travel time in minutes, or None if not defined."""
-        from_location = self._validate(from_location, "from_location")
-        to_location = self._validate(to_location, "to_location")
-        return self._times.get((from_location, to_location))
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Location):
+            return self._location_id == other._location_id
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self._location_id)
 
     def __repr__(self) -> str:
-        return f"TravelMatrix(routes={len(self._times)})"
+        return f"Location(location_id={self._location_id!r}, name={self._name!r})"
