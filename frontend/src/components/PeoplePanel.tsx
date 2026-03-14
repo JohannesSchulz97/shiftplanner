@@ -1,4 +1,13 @@
-import type { Person } from '@/types'
+import type { Person, AvailabilityState } from '@/types'
+
+const AVAILABILITY_STATES: AvailabilityState[] = ['expected', 'offered', 'unavailable']
+const AVAILABILITY_STYLE: Record<AvailabilityState, string> = {
+  expected:    'bg-emerald-500 text-white border-emerald-500',
+  offered:     'bg-yellow-400 text-white border-yellow-400',
+  unavailable: 'bg-red-400 text-white border-red-400',
+}
+
+const FULL_DAY = '00:00-23:59'
 
 interface RowProps {
   person: Person
@@ -15,16 +24,24 @@ function PersonRow({ person, allSkills, onChange, onRemove }: RowProps) {
     onChange({ ...person, skills })
   }
 
+  const currentState: AvailabilityState = person.availability[FULL_DAY] ?? 'expected'
+
+  function cycleAvailability() {
+    const idx = AVAILABILITY_STATES.indexOf(currentState)
+    const next = AVAILABILITY_STATES[(idx + 1) % AVAILABILITY_STATES.length]
+    onChange({ ...person, availability: { [FULL_DAY]: next } })
+  }
+
   return (
     <div className="flex items-start gap-3 py-3">
-      {/* Available dot */}
+      {/* Availability badge */}
       <button
-        onClick={() => onChange({ ...person, available: !person.available })}
-        title={person.available ? 'Mark unavailable' : 'Mark available'}
-        className={`mt-1 h-3 w-3 flex-shrink-0 rounded-full border-2 transition-colors ${
-          person.available ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300 bg-white'
-        }`}
-      />
+        onClick={cycleAvailability}
+        title="Click to cycle: expected → offered → unavailable"
+        className={`mt-0.5 flex-shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold border transition-colors ${AVAILABILITY_STYLE[currentState]}`}
+      >
+        {currentState[0].toUpperCase()}
+      </button>
       <div className="flex-1 min-w-0">
         <input
           value={person.name}
@@ -70,7 +87,7 @@ export function PeoplePanel({ people, setPeople, allSkills }: Props) {
   function add() {
     setPeople(prev => [
       ...prev,
-      { id: `p${Date.now()}`, name: 'New Person', skills: [], available: true },
+      { id: `p${Date.now()}`, name: 'New Person', skills: [], availability: { '00:00-23:59': 'expected' }, max_hours_per_day: 8, min_rest_minutes: 30 },
     ])
   }
 
@@ -83,8 +100,7 @@ export function PeoplePanel({ people, setPeople, allSkills }: Props) {
         </button>
       </div>
       <p className="mb-1 text-xs text-slate-400">
-        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 mr-1" />
-        green = available today · click skills to toggle
+        Badge cycles: <span className="font-medium text-emerald-600">E</span>xpected · <span className="font-medium text-yellow-500">O</span>ffered · <span className="font-medium text-red-400">U</span>navailable · click skills to toggle
       </p>
       <div className="divide-y divide-slate-100">
         {people.length === 0 && (

@@ -4,16 +4,18 @@ import { PeoplePanel } from '@/components/PeoplePanel'
 import { ShiftsPanel } from '@/components/ShiftsPanel'
 import { ScheduleTimeline } from '@/components/ScheduleTimeline'
 
+const TODAY = new Date().toISOString().split('T')[0]
+
 const INITIAL_PEOPLE: Person[] = [
-  { id: 'p1', name: 'Alice',  skills: ['physio'],       available: true },
-  { id: 'p2', name: 'Bob',    skills: ['shift_leader'], available: true },
-  { id: 'p3', name: 'Carol',  skills: ['medic'],        available: true },
+  { id: 'p1', name: 'Alice',  skills: ['physio'],       availability: { '00:00-23:59': 'expected' }, max_hours_per_day: 8, min_rest_minutes: 30 },
+  { id: 'p2', name: 'Bob',    skills: ['shift_leader'], availability: { '00:00-23:59': 'expected' }, max_hours_per_day: 8, min_rest_minutes: 30 },
+  { id: 'p3', name: 'Carol',  skills: ['medic'],        availability: { '00:00-23:59': 'expected' }, max_hours_per_day: 8, min_rest_minutes: 30 },
 ]
 
 const INITIAL_SHIFTS: ShiftDef[] = [
-  { id: 's1', name: 'Physio Session', start: '08:00', end: '11:00', required_skill: 'physio',       required_count: 1 },
-  { id: 's2', name: 'General Ward',   start: '11:00', end: '14:00', required_skill: 'shift_leader', required_count: 1 },
-  { id: 's3', name: 'Medical Bay',    start: '14:00', end: '17:00', required_skill: 'medic',        required_count: 1 },
+  { id: 's1', name: 'Physio Session', start: '08:00', end: '11:00', required_skill: 'physio',       required_count: 1, date: TODAY },
+  { id: 's2', name: 'General Ward',   start: '11:00', end: '14:00', required_skill: 'shift_leader', required_count: 1, date: TODAY },
+  { id: 's3', name: 'Medical Bay',    start: '14:00', end: '17:00', required_skill: 'medic',        required_count: 1, date: TODAY },
 ]
 
 export default function App() {
