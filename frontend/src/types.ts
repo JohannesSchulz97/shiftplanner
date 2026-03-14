@@ -1,8 +1,12 @@
+export type AvailabilityState = 'expected' | 'offered' | 'unavailable'
+
 export interface Person {
   id: string
   name: string
   skills: string[]
-  available: boolean
+  availability: Record<string, AvailabilityState>
+  max_hours_per_day: number
+  min_rest_minutes: number
 }
 
 export interface ShiftDef {
@@ -12,6 +16,7 @@ export interface ShiftDef {
   end: string            // "HH:MM"
   required_skill: string
   required_count: number
+  date: string           // "YYYY-MM-DD"
 }
 
 export interface Assignment {

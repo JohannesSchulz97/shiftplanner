@@ -26,6 +26,12 @@ function ShiftRow({ shift, allSkills, onChange, onRemove }: RowProps) {
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input
+          type="date"
+          value={shift.date}
+          onChange={e => onChange({ ...shift, date: e.target.value })}
+          className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 focus:border-slate-400 focus:outline-none"
+        />
+        <input
           type="time"
           value={shift.start}
           onChange={e => onChange({ ...shift, start: e.target.value })}
@@ -83,6 +89,7 @@ export function ShiftsPanel({ shifts, setShifts, allSkills }: Props) {
         end: '11:00',
         required_skill: allSkills[0] ?? '',
         required_count: 1,
+        date: new Date().toISOString().split('T')[0],
       },
     ])
   }
