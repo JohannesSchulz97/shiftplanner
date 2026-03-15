@@ -24,6 +24,9 @@ export default function App() {
   const [assignments, setAssignments] = useState<Assignment[] | null>(null)
   const [generating, setGenerating]   = useState(false)
   const [error, setError]             = useState<string | null>(null)
+  const [refineInput, setRefineInput] = useState('')
+  const [refining, setRefining]       = useState(false)
+  const [explanation, setExplanation] = useState<string | null>(null)
 
   // All skills in use across people + shifts — drives autocomplete and skill chips
   const allSkills = [
@@ -49,6 +52,27 @@ export default function App() {
       setError('Could not reach backend — is it running?')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function refine() {
+    if (!assignments || !refineInput.trim()) return
+    setRefining(true)
+    setError(null)
+    setExplanation(null)
+    try {
+      const res = await fetch('/api/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction: refineInput, current_schedule: assignments, people: people }),
+      })
+      const data = await res.json()
+      setAssignments(data.updated_schedule)
+      setExplanation(data.explanation ?? null)
+    } catch {
+      setError('Refine request failed — is the backend running?')
+    } finally {
+      setRefining(false)
     }
   }
 
@@ -83,6 +107,29 @@ export default function App() {
           >
             {generating ? 'Generating…' : 'Generate Schedule'}
           </button>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={refineInput}
+              onChange={e => setRefineInput(e.target.value)}
+              placeholder="e.g. Remove Alice from the morning shift"
+              className="flex-1 min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
+            />
+            <button
+              onClick={refine}
+              disabled={refining || !assignments?.length || !refineInput.trim()}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {refining ? 'Refining…' : 'Refine'}
+            </button>
+          </div>
+
+          {explanation && (
+            <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              {explanation}
+            </p>
+          )}
 
           {error && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">

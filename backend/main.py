@@ -1,5 +1,8 @@
 import sys
 import os
+import json
+
+import anthropic
 
 # Ensure project root is on sys.path so solver/core/constraints_model imports work
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -105,3 +108,58 @@ def generate(req: GenerateRequest):
     ]
 
     return GenerateResponse(assignments=out)
+
+
+# ---------------------------------------------------------------------------
+# Refine endpoint
+# ---------------------------------------------------------------------------
+
+class RefineRequest(BaseModel):
+    instruction: str
+    current_schedule: list
+    people: list = []
+
+class RefineResponse(BaseModel):
+    updated_schedule: list
+    explanation: str
+
+
+@app.post("/api/refine", response_model=RefineResponse)
+def refine(req: RefineRequest):
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    client = anthropic.Anthropic(api_key=api_key)
+
+    
+    people_json = json.dumps(req.people, indent=2)
+    schedule_json = json.dumps(req.current_schedule, indent=2)
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        system=(
+            "You are a shift scheduling assistant. "
+            "The user will provide a current schedule (as JSON) and an instruction to modify it. "
+            "Return a JSON object with exactly two keys: "
+            '"updated_schedule" (the modified schedule as a list) and '
+            '"explanation" (a brief plain-text explanation of the changes made). '
+            "Respond with raw JSON only — no markdown, no code fences."
+        ),
+        messages=[
+            {
+                "role": "user",
+                "content": (
+
+                    f"People: {people_json}\n\n"
+                    f"Current schedule:\n{schedule_json}\n\n"
+                    f"Instruction: {req.instruction}"
+                ),
+            }
+        ],
+    )
+
+    text = next(b.text for b in message.content if b.type == "text")
+    data = json.loads(text)
+
+    return RefineResponse(
+        updated_schedule=data["updated_schedule"],
+        explanation=data["explanation"],
+    )

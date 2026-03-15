@@ -7,6 +7,7 @@ export interface Person {
   availability: Record<string, AvailabilityState>
   max_hours_per_day: number
   min_rest_minutes: number
+  skill_levels?: Record<string, string>
 }
 
 export interface ShiftDef {
