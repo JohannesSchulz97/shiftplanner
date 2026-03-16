@@ -1,6 +1,5 @@
 import type { Person, ShiftDef, Assignment } from '@/types'
 
-// Colour per skill (falls back to slate)
 const SKILL_PALETTE: Record<string, { block: string; label: string; badge: string }> = {
   physio:       { block: 'border-violet-200 bg-violet-50',  label: 'text-violet-800', badge: 'bg-violet-100 text-violet-700' },
   shift_leader: { block: 'border-blue-200 bg-blue-50',      label: 'text-blue-800',   badge: 'bg-blue-100 text-blue-700'   },
@@ -40,7 +39,6 @@ export function ScheduleTimeline({ shifts, assignments, people }: Props) {
     (assignments ?? []).map(a => [a.shift_id, a])
   )
 
-  // Time range — snap to whole hours, pad by 30 min
   const allMins = shifts.flatMap(s => [timeToMin(s.start), timeToMin(s.end)])
   const minMin = Math.floor((Math.min(...allMins) - 30) / 60) * 60
   const maxMin = Math.ceil((Math.max(...allMins) + 30) / 60) * 60
@@ -54,6 +52,33 @@ export function ScheduleTimeline({ shifts, assignments, people }: Props) {
     return ((min - minMin) / 60) * HOUR_PX
   }
 
+  // Collision detection
+  const columns: Array<{ shift: ShiftDef; col: number; totalCols: number }> = []
+  shifts.forEach(shift => {
+    const sMin = timeToMin(shift.start)
+    const eMin = timeToMin(shift.end)
+    const overlapping = columns.filter(c => {
+      const cMin = timeToMin(c.shift.start)
+      const cEnd = timeToMin(c.shift.end)
+      return sMin < cEnd && eMin > cMin
+    })
+    const usedCols = overlapping.map(c => c.col)
+    let col = 0
+    while (usedCols.includes(col)) col++
+    columns.push({ shift, col, totalCols: 0 })
+  })
+  columns.forEach(c => {
+    const overlapping = columns.filter(o => {
+      const sMin = timeToMin(c.shift.start)
+      const eMin = timeToMin(c.shift.end)
+      const oMin = timeToMin(o.shift.start)
+      const oEnd = timeToMin(o.shift.end)
+      return sMin < oEnd && eMin > oMin
+    })
+    c.totalCols = Math.max(...overlapping.map(o => o.col)) + 1
+  })
+  const colMap = Object.fromEntries(columns.map(c => [c.shift.id, c]))
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -66,7 +91,6 @@ export function ScheduleTimeline({ shifts, assignments, people }: Props) {
       </div>
 
       <div className="flex gap-3">
-        {/* Hour labels */}
         <div className="relative w-12 flex-shrink-0 select-none" style={{ height: totalHeight }}>
           {hours.map(t => (
             <div
@@ -79,9 +103,7 @@ export function ScheduleTimeline({ shifts, assignments, people }: Props) {
           ))}
         </div>
 
-        {/* Timeline */}
         <div className="relative flex-1" style={{ height: totalHeight }}>
-          {/* Gridlines */}
           {hours.map(t => (
             <div
               key={t}
@@ -90,7 +112,6 @@ export function ScheduleTimeline({ shifts, assignments, people }: Props) {
             />
           ))}
 
-          {/* Shift blocks */}
           {shifts.map(shift => {
             const sMin = timeToMin(shift.start)
             const eMin = timeToMin(shift.end)
@@ -100,21 +121,24 @@ export function ScheduleTimeline({ shifts, assignments, people }: Props) {
             const a = assignmentByShift[shift.id]
             const assigned = a?.person_ids.map(id => personById[id]).filter(Boolean) ?? []
             const unfulfilled = a && !a.fulfilled
+            const col = colMap[shift.id].col
+            const totalCols = colMap[shift.id].totalCols
 
             return (
               <div
                 key={shift.id}
-                className={`absolute inset-x-0 rounded-lg border px-3 py-2 ${pal.block} ${
-                  !a ? 'border-dashed opacity-60' : ''
-                }`}
-                style={{ top: blockTop + 2, height: blockH - 4 }}
+                className={`absolute rounded-lg border px-3 py-2 ${pal.block} ${!a ? 'border-dashed opacity-60' : ''}`}
+                style={{
+                  top: blockTop + 2,
+                  height: blockH - 4,
+                  left: `${(col / totalCols) * 100}%`,
+                  width: `${(1 / totalCols) * 100}%`,
+                }}
               >
                 <div className={`text-sm font-semibold ${pal.label}`}>{shift.name}</div>
                 <div className={`text-xs opacity-70 ${pal.label}`}>
                   {shift.start}–{shift.end} · needs {shift.required_count} × {shift.required_skill}
                 </div>
-
-                {/* Assignment result */}
                 {a && (
                   <div className="mt-2 flex flex-wrap gap-1">
                     {unfulfilled && (
