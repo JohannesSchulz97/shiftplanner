@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import jsPDF from 'jspdf'
 import type { Person, ShiftDef, Assignment } from '@/types'
 import { PeoplePanel } from '@/components/PeoplePanel'
 import { ShiftsPanel } from '@/components/ShiftsPanel'
@@ -41,6 +42,72 @@ export default function App() {
       ...shifts.map(s => s.required_skill).filter(Boolean),
     ]),
   ]
+
+  function exportPDF() {
+    const pdf = new jsPDF({ orientation: 'landscape' })
+    const pageW = pdf.internal.pageSize.getWidth()
+    const date = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+
+    // Header
+    pdf.setFillColor(30, 30, 30)
+    pdf.rect(0, 0, pageW, 20, 'F')
+    pdf.setTextColor(255, 255, 255)
+    pdf.setFontSize(14)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('ShiftPlanner', 14, 13)
+    pdf.setFontSize(10)
+    pdf.setFont('helvetica', 'normal')
+    pdf.text(date, pageW - 14, 13, { align: 'right' })
+
+    // Table header
+    pdf.setTextColor(0, 0, 0)
+    pdf.setFillColor(240, 240, 240)
+    pdf.rect(10, 25, pageW - 20, 8, 'F')
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(9)
+    pdf.text('Shift', 14, 31)
+    pdf.text('Time', 70, 31)
+    pdf.text('Skill', 110, 31)
+    pdf.text('Assigned', 150, 31)
+    pdf.text('Status', 230, 31)
+
+    // Table rows
+    pdf.setFont('helvetica', 'normal')
+    let y = 42
+    shifts.forEach((shift, i) => {
+      if (i % 2 === 0) {
+        pdf.setFillColor(250, 250, 250)
+        pdf.rect(10, y - 5, pageW - 20, 8, 'F')
+      }
+      const a = assignments?.find(x => x.shift_id === shift.id)
+      const names = a?.person_ids.map(id => people.find(p => p.id === id)?.name ?? id).join(', ') ?? '-'
+      const status = !a ? 'No schedule' : a.fulfilled ? 'Fulfilled' : 'Unfulfilled'
+      pdf.setTextColor(0, 0, 0)
+      pdf.text(shift.name, 14, y)
+      pdf.text(`${shift.start} - ${shift.end}`, 70, y)
+      pdf.text(shift.required_skill, 110, y)
+      pdf.text(names, 150, y)
+      if (!a || !a.fulfilled) pdf.setTextColor(200, 50, 50)
+      else pdf.setTextColor(50, 150, 50)
+      pdf.text(status, 230, y)
+      pdf.setTextColor(0, 0, 0)
+      y += 9
+    })
+
+    // Border
+    pdf.setDrawColor(200, 200, 200)
+    pdf.rect(10, 25, pageW - 20, y - 25)
+
+    pdf.save('schedule.pdf')
+  }
+
+  function reset() {
+    if (!window.confirm('Clear the generated schedule? People and shifts will be kept.')) return
+    localStorage.removeItem('sp_assignments')
+    setAssignments(null)
+    setError(null)
+    setExplanation(null)
+  }
 
   async function generate() {
     setGenerating(true)
@@ -118,13 +185,21 @@ export default function App() {
           <PeoplePanel people={people} setPeople={handlePeopleChange} allSkills={allSkills} />
           <ShiftsPanel shifts={shifts} setShifts={handleShiftsChange} allSkills={allSkills} />
 
-          <button
-            onClick={generate}
-            disabled={generating || shifts.length === 0}
-            className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {generating ? 'Generating…' : 'Generate Schedule'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={generate}
+              disabled={generating || shifts.length === 0}
+              className="flex-1 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {generating ? 'Generating…' : 'Generate Schedule'}
+            </button>
+            <button
+              onClick={reset}
+              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+            >
+              Reset
+            </button>
+          </div>
 
           <div className="flex gap-2">
             <input
@@ -158,7 +233,17 @@ export default function App() {
 
         {/* Right column — schedule */}
         <div className="flex-1 min-w-0">
-          <ScheduleTimeline shifts={shifts} assignments={assignments} people={people} />
+          <div id="schedule-timeline">
+            <ScheduleTimeline shifts={shifts} assignments={assignments} people={people} />
+          </div>
+          {assignments && (
+            <button
+              onClick={exportPDF}
+              className="mt-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+            >
+              Export PDF
+            </button>
+          )}
         </div>
       </div>
     </div>
