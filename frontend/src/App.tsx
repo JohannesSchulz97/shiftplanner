@@ -19,9 +19,15 @@ const INITIAL_SHIFTS: ShiftDef[] = [
 ]
 
 export default function App() {
-  const [people, setPeople]       = useState<Person[]>(INITIAL_PEOPLE)
-  const [shifts, setShifts]       = useState<ShiftDef[]>(INITIAL_SHIFTS)
-  const [assignments, setAssignments] = useState<Assignment[] | null>(null)
+  const [people, setPeople]       = useState<Person[]>(() => {
+    try { const s = localStorage.getItem('sp_people'); return s ? JSON.parse(s) : INITIAL_PEOPLE } catch { return INITIAL_PEOPLE }
+  })
+  const [shifts, setShifts]       = useState<ShiftDef[]>(() => {
+    try { const s = localStorage.getItem('sp_shifts'); return s ? JSON.parse(s) : INITIAL_SHIFTS } catch { return INITIAL_SHIFTS }
+  })
+  const [assignments, setAssignments] = useState<Assignment[] | null>(() => {
+    try { const s = localStorage.getItem('sp_assignments'); return s ? JSON.parse(s) : null } catch { return null }
+  })
   const [generating, setGenerating]   = useState(false)
   const [error, setError]             = useState<string | null>(null)
   const [refineInput, setRefineInput] = useState('')
@@ -48,6 +54,7 @@ export default function App() {
       })
       const data = await res.json()
       setAssignments(data.assignments)
+      localStorage.setItem('sp_assignments', JSON.stringify(data.assignments))
     } catch {
       setError('Could not reach backend — is it running?')
     } finally {
@@ -68,6 +75,7 @@ export default function App() {
       })
       const data = await res.json()
       setAssignments(data.updated_schedule)
+      localStorage.setItem('sp_assignments', JSON.stringify(data.updated_schedule))
       setExplanation(data.explanation ?? null)
     } catch {
       setError('Refine request failed — is the backend running?')
@@ -79,12 +87,22 @@ export default function App() {
   // Reset schedule whenever the setup changes
   function handlePeopleChange(next: React.SetStateAction<Person[]>) {
     setAssignments(null)
-    setPeople(next)
+    localStorage.removeItem('sp_assignments')
+    setPeople(prev => {
+      const val = typeof next === 'function' ? next(prev) : next
+      localStorage.setItem('sp_people', JSON.stringify(val))
+      return val
+    })
   }
 
   function handleShiftsChange(next: React.SetStateAction<ShiftDef[]>) {
     setAssignments(null)
-    setShifts(next)
+    localStorage.removeItem('sp_assignments')
+    setShifts(prev => {
+      const val = typeof next === 'function' ? next(prev) : next
+      localStorage.setItem('sp_shifts', JSON.stringify(val))
+      return val
+    })
   }
 
   return (
