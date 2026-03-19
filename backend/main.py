@@ -22,7 +22,7 @@ app = FastAPI(title="ShiftPlanner API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -36,19 +36,29 @@ class Person(BaseModel):
     id: str
     name: str
     skills: list[str]
-    availability: dict[str, str] = {}       # {"08:00-11:00": "expected"}
+    availableDays: list[str] = []          # ["mon", "tue", ...]
+    availability: dict[str, str] = {}
     max_hours_per_day: float = 8.0
     min_rest_minutes: int = 30
+
+
+class Role(BaseModel):
+    id: str
+    required_skill: str
+    required_count: int = 1
+    notes: str = ""
 
 
 class ShiftDef(BaseModel):
     id: str
     name: str
-    start: str                              # "HH:MM"
-    end: str                                # "HH:MM"
-    required_skill: str
-    required_count: int = 1
-    date: str = "2026-01-01"               # "YYYY-MM-DD"
+    start: str
+    end: str
+    date: str = "2026-01-01"
+    category: str = "Morning"
+    shiftLeaderId: str = ""
+    repeatDays: list[str] = []
+    roles: list[Role] = []
 
 
 class GenerateRequest(BaseModel):
@@ -56,14 +66,25 @@ class GenerateRequest(BaseModel):
     shifts: list[ShiftDef]
 
 
-class AssignmentOut(BaseModel):
+class RoleAssignmentOut(BaseModel):
+    role_id: str
+    required_skill: str
+    required_count: int
+    notes: str
+    assigned_person_ids: list[str]
+    unfulfilled: int
+
+
+class ScheduleEntryOut(BaseModel):
     shift_id: str
-    person_ids: list[str]
-    fulfilled: bool
+    date: str
+    shift_leader_id: str = ""
+    role_assignments: list[RoleAssignmentOut]
+    total_unfulfilled: int
 
 
 class GenerateResponse(BaseModel):
-    assignments: list[AssignmentOut]
+    schedule: list[ScheduleEntryOut]
 
 
 # ---------------------------------------------------------------------------
@@ -73,41 +94,77 @@ class GenerateResponse(BaseModel):
 @app.post("/api/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
     if not req.shifts:
-        return GenerateResponse(assignments=[])
+        return GenerateResponse(schedule=[])
 
-    shifts = req.shifts
-    context, constraint_context, scoring_context = build_solver_inputs(
-        req.people, shifts
-    )
+    DAY_MAP = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
 
-    solver = Solver(ConstraintEngine(), ScoringEngine())
-    assignments_result, result_meta = solver.generate_initial(
-        context, constraint_context, scoring_context
-    )
+    from datetime import date as dt_date
+    def get_day_key(date_str: str) -> str:
+        d = dt_date.fromisoformat(date_str)
+        return ["sun","mon","tue","wed","thu","fri","sat"][d.weekday() + 1 if d.weekday() < 6 else 0]
 
-    if assignments_result is None:
-        # Return unfulfilled slots rather than 500
-        return GenerateResponse(assignments=[
-            AssignmentOut(shift_id=s.id, person_ids=[], fulfilled=False)
-            for s in shifts
-        ])
+    # Expand shifts based on repeatDays
+    from datetime import date as dt_date, timedelta
+    today = dt_date.today()
+    week_dates = [(today + timedelta(days=i)).isoformat() for i in range(7)]
 
-    # --- group results by shift_id ----------------------------------------
-    shift_persons: dict[str, list[str]] = defaultdict(list)
-    for a in assignments_result:
-        shift_persons[a.shift_id].append(a.person_id)
+    expanded = []  # (shift, date)
+    for shift in req.shifts:
+        expanded.append((shift, shift.date))
+        for d in week_dates:
+            if d != shift.date:
+                day_key = get_day_key(d)
+                if day_key in shift.repeatDays:
+                    expanded.append((shift, d))
 
-    shift_required = {s.id: s.required_count for s in shifts}
-    out = [
-        AssignmentOut(
-            shift_id=s.id,
-            person_ids=shift_persons.get(s.id, []),
-            fulfilled=len(shift_persons.get(s.id, [])) >= shift_required[s.id],
-        )
-        for s in shifts
-    ]
+    schedule = []
+    person_time_assignments: dict[str, set] = {}  # personId -> set of timekeys
 
-    return GenerateResponse(assignments=out)
+    for shift, date in expanded:
+        day_key = get_day_key(date)
+        time_key = f"{date}-{shift.start}-{shift.end}"
+
+        role_assignments = []
+        total_unfulfilled = 0
+
+        for role in shift.roles:
+            assigned_ids = []
+            eligible = [
+                p for p in req.people
+                if (not p.availableDays or day_key in p.availableDays)
+                and (not role.required_skill or role.required_skill in p.skills)
+            ]
+
+            for person in eligible:
+                if len(assigned_ids) >= role.required_count:
+                    break
+                assignments = person_time_assignments.get(person.id, set())
+                if time_key not in assignments:
+                    assigned_ids.append(person.id)
+                    assignments.add(time_key)
+                    person_time_assignments[person.id] = assignments
+
+            unfulfilled = max(0, role.required_count - len(assigned_ids))
+            total_unfulfilled += unfulfilled
+
+            role_assignments.append(RoleAssignmentOut(
+                role_id=role.id,
+                required_skill=role.required_skill,
+                required_count=role.required_count,
+                notes=role.notes,
+                assigned_person_ids=assigned_ids,
+                unfulfilled=unfulfilled,
+            ))
+
+        schedule.append(ScheduleEntryOut(
+            shift_id=shift.id,
+            date=date,
+            shift_leader_id=shift.shiftLeaderId or "",
+            role_assignments=role_assignments,
+            total_unfulfilled=total_unfulfilled,
+        ))
+
+    return GenerateResponse(schedule=schedule)
 
 
 # ---------------------------------------------------------------------------
@@ -163,3 +220,118 @@ def refine(req: RefineRequest):
         updated_schedule=data["updated_schedule"],
         explanation=data["explanation"],
     )
+
+
+# ---------------------------------------------------------------------------
+# New /api/solve endpoint — compatible with v0_project frontend
+# ---------------------------------------------------------------------------
+class SolvePerson(BaseModel):
+    id: str
+    name: str
+    skills: list[str] = []
+    maxShiftsPerDay: int = 1
+
+class SolveTask(BaseModel):
+    id: str
+    name: str
+    requiredSkill: str = ""
+    category: str = "morning"
+
+class SolveRequest(BaseModel):
+    people: list[SolvePerson]
+    tasks: list[SolveTask]
+    date: str
+
+class SolveEntry(BaseModel):
+    id: str
+    personId: str
+    taskId: str
+    date: str
+    start: str
+    end: str
+    category: str
+    isLeader: bool
+    isOvernight: bool
+
+class SolveResponse(BaseModel):
+    entries: list[SolveEntry]
+
+CATEGORY_TIMES = {
+    "early_morning": ("06:00", "09:00"),
+    "morning": ("09:00", "13:00"),
+    "afternoon": ("13:00", "17:00"),
+    "evening": ("17:00", "21:00"),
+    "overnight": ("21:00", "04:00"),
+}
+
+import random, string
+
+def new_id():
+    return "".join(random.choices(string.ascii_lowercase + string.digits, k=7))
+
+@app.post("/api/solve", response_model=SolveResponse)
+def solve(req: SolveRequest):
+    entries = []
+    shifts_count = {p.id: 0 for p in req.people}
+    leader_assigned = set()
+    tasks_by_cat = {}
+    for task in req.tasks:
+        tasks_by_cat.setdefault(task.category, []).append(task)
+    for category, cat_tasks in tasks_by_cat.items():
+        start, end = CATEGORY_TIMES.get(category, ("09:00", "17:00"))
+        for task in cat_tasks:
+            eligible = [
+                p for p in req.people
+                if shifts_count[p.id] < p.maxShiftsPerDay
+                and (not task.requiredSkill or task.requiredSkill in p.skills)
+            ]
+            if not eligible:
+                eligible = [p for p in req.people if not task.requiredSkill or task.requiredSkill in p.skills]
+            if not eligible:
+                continue
+            eligible.sort(key=lambda p: shifts_count[p.id])
+            person = eligible[0]
+            is_leader = category not in leader_assigned
+            if is_leader:
+                leader_assigned.add(category)
+            entries.append(SolveEntry(
+                id=new_id(),
+                personId=person.id,
+                taskId=task.id,
+                date=req.date,
+                start=start,
+                end=end,
+                category=category,
+                isLeader=is_leader,
+                isOvernight=(category == "overnight"),
+            ))
+            shifts_count[person.id] += 1
+    return SolveResponse(entries=entries)
+
+
+# ---------------------------------------------------------------------------
+# Chat endpoint — proxies Anthropic API to avoid CORS
+# ---------------------------------------------------------------------------
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    system: str = ""
+
+class ChatResponse(BaseModel):
+    reply: str
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1500,
+        system=req.system,
+        messages=[{"role": m.role, "content": m.content} for m in req.messages],
+    )
+    text = next(b.text for b in message.content if b.type == "text")
+    return ChatResponse(reply=text)
